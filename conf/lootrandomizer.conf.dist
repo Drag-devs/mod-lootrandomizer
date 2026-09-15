@@ -1,0 +1,174 @@
+[worldserver]
+
+###################################################################################################
+# mod-lootrandomizer
+#
+# RandomLoot.Enable
+#     Enables or disables the entire module.
+# Default: 1 (enabled)
+###################################################################################################
+RandomLoot.Enable = 1
+
+###################################################################################################
+# Account exclusions
+#
+# RandomLoot.Account.ExcludeIds
+#     Comma-separated list of account IDs to exclude from random loot entirely.
+#     Example: 2,5,7
+# Default: "" (no exclusions)
+#
+# RandomLoot.Account.MaxId
+#     Exclude any account with an ID greater than this value.
+#     0 means no upper-bound check is applied.
+#     Useful to exclude playerbot accounts (e.g. set to 1000 to skip all accounts > 1000).
+# Default: 0
+###################################################################################################
+RandomLoot.Account.ExcludeIds =
+RandomLoot.Account.MaxId = 0
+
+###################################################################################################
+# Chance by creature level (percent chance per kill)
+#
+# You can set any level key from 1-80.
+# If a level does not have an exact key, the closest lower configured level is used.
+# Example: level 37 uses level 20 chance if 37 is not set.
+# Missing level keys are valid and will not disable the module.
+###################################################################################################
+RandomLoot.Chance.Level.1 = 1.0
+RandomLoot.Chance.Level.10 = 2.0
+RandomLoot.Chance.Level.20 = 3.0
+RandomLoot.Chance.Level.30 = 4.0
+RandomLoot.Chance.Level.40 = 5.0
+RandomLoot.Chance.Level.50 = 6.5
+RandomLoot.Chance.Level.60 = 8.0
+RandomLoot.Chance.Level.70 = 10.0
+RandomLoot.Chance.Level.80 = 15.0
+
+###################################################################################################
+# How many random items can be added on a successful roll
+###################################################################################################
+RandomLoot.MinItems = 1
+RandomLoot.MaxItems = 1
+
+###################################################################################################
+# Item filtering
+#
+# For range settings below, a value of 0 means "no limit" for that side of the range.
+###################################################################################################
+
+# Inclusive eligible item-type filter (OR semantics)
+#
+# If disabled (0): no item-type filtering is applied.
+# If enabled (1): any item matching at least one Include.* key set to 1 is eligible.
+# This is intentionally non-exclusionary: enabling Rings and Weapons means "rings OR weapons".
+RandomLoot.Filter.TypeFilterEnabled = 0
+
+# Broad class groups
+RandomLoot.Filter.Include.Weapons = 1
+RandomLoot.Filter.Include.Armor = 1
+RandomLoot.Filter.Include.Consumables = 1
+RandomLoot.Filter.Include.Containers = 1
+RandomLoot.Filter.Include.Gems = 1
+RandomLoot.Filter.Include.Reagents = 1
+RandomLoot.Filter.Include.Projectiles = 1
+RandomLoot.Filter.Include.TradeGoods = 1
+RandomLoot.Filter.Include.Recipes = 1
+RandomLoot.Filter.Include.Quivers = 1
+RandomLoot.Filter.Include.Quest = 1
+RandomLoot.Filter.Include.Keys = 1
+RandomLoot.Filter.Include.Misc = 1
+RandomLoot.Filter.Include.Glyphs = 1
+
+# Slot/equipment family groups
+RandomLoot.Filter.Include.Jewelry = 1
+RandomLoot.Filter.Include.Rings = 1
+RandomLoot.Filter.Include.Necklaces = 1
+RandomLoot.Filter.Include.Trinkets = 1
+RandomLoot.Filter.Include.Cloaks = 1
+RandomLoot.Filter.Include.Shields = 1
+RandomLoot.Filter.Include.Relics = 1
+RandomLoot.Filter.Include.Holdables = 1
+RandomLoot.Filter.Include.Bags = 1
+RandomLoot.Filter.Include.Tabards = 1
+RandomLoot.Filter.Include.Shirts = 1
+
+RandomLoot.Filter.Include.Head = 1
+RandomLoot.Filter.Include.Shoulders = 1
+RandomLoot.Filter.Include.Chest = 1
+RandomLoot.Filter.Include.Waist = 1
+RandomLoot.Filter.Include.Legs = 1
+RandomLoot.Filter.Include.Feet = 1
+RandomLoot.Filter.Include.Wrists = 1
+RandomLoot.Filter.Include.Hands = 1
+
+RandomLoot.Filter.Include.OneHandWeapons = 1
+RandomLoot.Filter.Include.TwoHandWeapons = 1
+RandomLoot.Filter.Include.RangedWeapons = 1
+
+# Item quality filter (per-option)
+# If FilterEnabled = 0, quality is not filtered.
+RandomLoot.Filter.Quality.FilterEnabled = 0
+RandomLoot.Filter.Quality.Include.Poor = 1
+RandomLoot.Filter.Quality.Include.Common = 1
+RandomLoot.Filter.Quality.Include.Uncommon = 1
+RandomLoot.Filter.Quality.Include.Rare = 1
+RandomLoot.Filter.Quality.Include.Epic = 1
+RandomLoot.Filter.Quality.Include.Legendary = 1
+RandomLoot.Filter.Quality.Include.Artifact = 1
+RandomLoot.Filter.Quality.Include.Heirloom = 1
+
+# Required level range (set Min or Max to 0 to disable that limit)
+RandomLoot.Filter.RequiredLevel.Min = 0
+RandomLoot.Filter.RequiredLevel.Max = 0
+
+# Item level range (set Min or Max to 0 to disable that limit)
+RandomLoot.Filter.ItemLevel.Min = 0
+RandomLoot.Filter.ItemLevel.Max = 0
+
+# Expansion filter using derived bracket from RequiredLevel:
+#   Classic (<= 60), TBC (61-70), Wrath (71+)
+RandomLoot.Filter.Expansion.FilterEnabled = 0
+RandomLoot.Filter.Expansion.Include.Classic = 1
+RandomLoot.Filter.Expansion.Include.TBC = 1
+RandomLoot.Filter.Expansion.Include.Wrath = 1
+
+# Bonding filter (per-option)
+RandomLoot.Filter.Bonding.FilterEnabled = 0
+RandomLoot.Filter.Bonding.Include.NoBind = 1
+RandomLoot.Filter.Bonding.Include.BindOnPickup = 1
+RandomLoot.Filter.Bonding.Include.BindOnEquip = 1
+RandomLoot.Filter.Bonding.Include.BindOnUse = 1
+RandomLoot.Filter.Bonding.Include.QuestItem = 1
+RandomLoot.Filter.Bonding.Include.QuestItemUnused = 1
+
+# Restrict pool behavior
+RandomLoot.Filter.EquippableOnly = 0
+RandomLoot.Filter.AllowQuestItems = 0
+RandomLoot.Filter.AllowContainers = 0
+RandomLoot.Filter.AllowItemsWithSpells = 1
+RandomLoot.Filter.AllowBindOnPickup = 1
+
+# Random loot is additive: it is appended and never replaces normal loot.
+# If 1, random loot is only added when the creature already had base loot/money.
+# If 0, random loot can also appear on creatures that had no base loot.
+RandomLoot.Filter.RequireExistingLoot = 0
+
+###################################################################################################
+# Optional numeric reference (AzerothCore enums)
+#
+# Item quality (RandomLoot.Filter.Quality.Include.*)
+#   0=Poor, 1=Common, 2=Uncommon, 3=Rare, 4=Epic, 5=Legendary, 6=Artifact, 7=Heirloom
+#
+# Inventory type (item_template.InventoryType)
+#   0=NonEquip, 1=Head, 2=Neck, 3=Shoulders, 4=Shirt, 5=Chest, 6=Waist, 7=Legs,
+#   8=Feet, 9=Wrists, 10=Hands, 11=Finger, 12=Trinket, 13=Weapon, 14=Shield,
+#   15=Ranged, 16=Cloak, 17=2HWeapon, 18=Bag, 19=Tabard, 20=Robe,
+#   21=MainHand, 22=OffHand, 23=Holdable, 24=Ammo, 25=Thrown, 26=RangedRight,
+#   27=Quiver, 28=Relic
+#
+# Item bonding (RandomLoot.Filter.Bonding.Include.*)
+#   0=NoBind, 1=BindOnPickup, 2=BindOnEquip, 3=BindOnUse, 4=QuestItem, 5=QuestItemUnused
+#
+# Expansion bracket (RandomLoot.Filter.Expansion.Include.* derived from RequiredLevel)
+#   Classic (<=60), TBC (61-70), Wrath (71+)
+###################################################################################################

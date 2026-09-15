@@ -1,0 +1,5 @@
+-- mod-lootrandomizer does not require schema changes.
+--
+-- Item pool is built from item_template in-memory data using filters from lootrandomizer.conf.
+--
+-- Keep this file so db import pipelines can detect module SQL presence if needed.
