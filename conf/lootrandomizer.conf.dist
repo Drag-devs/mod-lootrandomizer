@@ -5,9 +5,9 @@
 #
 # RandomLoot.Enable
 #     Enables or disables the entire module.
-# Default: 1 (enabled)
+# Default: 0 (disabled)
 ###################################################################################################
-RandomLoot.Enable = 1
+RandomLoot.Enable = 0
 
 ###################################################################################################
 # Account exclusions
@@ -17,32 +17,28 @@ RandomLoot.Enable = 1
 #     Example: 2,5,7
 # Default: "" (no exclusions)
 #
-# RandomLoot.Account.MaxId
-#     Exclude any account with an ID greater than this value.
-#     0 means no upper-bound check is applied.
-#     Useful to exclude playerbot accounts (e.g. set to 1000 to skip all accounts > 1000).
-# Default: 0
+# RandomLoot.Account.ExcludeRange
+#     Inclusive comma-separated account ID range to exclude from random loot.
+#     Example: 1000,1377 excludes account IDs 1000 through 1377, including both endpoints.
+#     Leave empty to disable range exclusion. The first ID must not be greater than the second.
+# Default: "" (no range exclusion)
 ###################################################################################################
 RandomLoot.Account.ExcludeIds =
-RandomLoot.Account.MaxId = 0
+RandomLoot.Account.ExcludeRange =
 
 ###################################################################################################
 # Chance by creature level (percent chance per kill)
 #
-# You can set any level key from 1-80.
-# If a level does not have an exact key, the closest lower configured level is used.
-# Example: level 37 uses level 20 chance if 37 is not set.
-# Missing level keys are valid and will not disable the module.
+# Add only the level keys that should start a new chance bracket, from 1 through 80.
+# If a creature level does not have an exact key, it uses the closest lower configured level.
+# Example: with only Level.1 and Level.80 configured, levels 1-79 use Level.1's chance.
+# A creature below the lowest configured key has a 0% chance. Keep Level.1 to define a baseline.
+# Missing keys are valid and do not disable the module.
 ###################################################################################################
-RandomLoot.Chance.Level.1 = 1.0
-RandomLoot.Chance.Level.10 = 2.0
-RandomLoot.Chance.Level.20 = 3.0
-RandomLoot.Chance.Level.30 = 4.0
-RandomLoot.Chance.Level.40 = 5.0
-RandomLoot.Chance.Level.50 = 6.5
-RandomLoot.Chance.Level.60 = 8.0
-RandomLoot.Chance.Level.70 = 10.0
-RandomLoot.Chance.Level.80 = 15.0
+RandomLoot.Chance.Level.1 = 25
+RandomLoot.Chance.Level.60 = 30
+RandomLoot.Chance.Level.70 = 35
+RandomLoot.Chance.Level.80 = 40
 
 ###################################################################################################
 # How many random items can be added on a successful roll
@@ -61,7 +57,7 @@ RandomLoot.MaxItems = 1
 # If disabled (0): no item-type filtering is applied.
 # If enabled (1): any item matching at least one Include.* key set to 1 is eligible.
 # This is intentionally non-exclusionary: enabling Rings and Weapons means "rings OR weapons".
-RandomLoot.Filter.TypeFilterEnabled = 0
+RandomLoot.Filter.TypeFilterEnabled = 1
 
 # Broad class groups
 RandomLoot.Filter.Include.Weapons = 1
@@ -74,8 +70,8 @@ RandomLoot.Filter.Include.Projectiles = 1
 RandomLoot.Filter.Include.TradeGoods = 1
 RandomLoot.Filter.Include.Recipes = 1
 RandomLoot.Filter.Include.Quivers = 1
-RandomLoot.Filter.Include.Quest = 1
-RandomLoot.Filter.Include.Keys = 1
+RandomLoot.Filter.Include.Quest = 0
+RandomLoot.Filter.Include.Keys = 0
 RandomLoot.Filter.Include.Misc = 1
 RandomLoot.Filter.Include.Glyphs = 1
 
@@ -107,8 +103,8 @@ RandomLoot.Filter.Include.RangedWeapons = 1
 
 # Item quality filter (per-option)
 # If FilterEnabled = 0, quality is not filtered.
-RandomLoot.Filter.Quality.FilterEnabled = 0
-RandomLoot.Filter.Quality.Include.Poor = 1
+RandomLoot.Filter.Quality.FilterEnabled = 1
+RandomLoot.Filter.Quality.Include.Poor = 0
 RandomLoot.Filter.Quality.Include.Common = 1
 RandomLoot.Filter.Quality.Include.Uncommon = 1
 RandomLoot.Filter.Quality.Include.Rare = 1
@@ -124,6 +120,129 @@ RandomLoot.Filter.RequiredLevel.Max = 0
 # Item level range (set Min or Max to 0 to disable that limit)
 RandomLoot.Filter.ItemLevel.Min = 0
 RandomLoot.Filter.ItemLevel.Max = 0
+
+###################################################################################################
+# Companion loot
+#
+# Pets (item_template Class=15, SubClass=2) and mounts (Class=15, SubClass=5) are removed from the
+# normal random-loot pool and rolled independently for each eligible kill.
+# They ignore required-level, item-level, and player-level bracket filters, but still obey the other
+# configured filters. When type filtering is enabled, RandomLoot.Filter.Include.Misc must be enabled
+# for companions to be eligible. Other miscellaneous subclasses remain in the normal loot pool.
+#
+# Chance is a percentage rolled once per eligible kill for each companion category. Normal items use
+# RandomLoot.Chance.Level.* separately. At most one pet and one mount can be added, subject to the
+# corpse's normal loot-slot limit.
+###################################################################################################
+RandomLoot.Companion.Pets.Enabled = 1
+RandomLoot.Companion.Pets.Chance = 2.0
+RandomLoot.Companion.Mounts.Enabled = 1
+RandomLoot.Companion.Mounts.Chance = 2.0
+
+###################################################################################################
+# Player-level item bracket
+#
+# When enabled, normal items must be within the bracket for the player receiving random loot:
+#   MinMaxItemLevel.<max(1, player level - UpperLevelOffset)>.min <= ItemLevel
+#       <= MinMaxItemLevel.<min(80, player level + UpperLevelOffset)>.max
+# The character-level boundaries are capped at 1 and 80. Existing static filters remain additional
+# restrictions.
+#
+# RandomLoot.Filter.PlayerLevelBracket.BracketEquippableOnly
+#     If 1, the dynamic player-level bracket applies only to items with non-zero InventoryType.
+#     Normal non-equipment items bypass this dynamic bracket but still obey all static filters.
+# Default: 1 (bracket only equippable items)
+#
+# Each MinMaxItemLevel mapping uses `minimum,maximum`. All 80 mappings are required when enabled.
+# Missing, malformed, invalid, or empty ranges fail closed: no random loot is added until corrected.
+###################################################################################################
+RandomLoot.Filter.PlayerLevelBracket.Enabled = 1
+RandomLoot.Filter.PlayerLevelBracket.UpperLevelOffset = 5
+RandomLoot.Filter.PlayerLevelBracket.BracketEquippableOnly = 1
+
+# Explicit item-level floor and ceiling by character level. Each entry uses `minimum,maximum`.
+# Maximums are cumulative weapon-and-armor ceilings derived from required-level data. Test,
+# developer, and reputation-gated templates are excluded, so a ceiling never decreases as levels rise.
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.1 = 1,10
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.2 = 2,11
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.3 = 3,12
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.4 = 4,13
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.5 = 5,14
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.6 = 6,15
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.7 = 7,16
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.8 = 8,17
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.9 = 9,18
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.10 = 10,19
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.11 = 11,20
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.12 = 12,21
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.13 = 13,22
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.14 = 14,24
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.15 = 15,25
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.16 = 16,26
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.17 = 17,27
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.18 = 18,28
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.19 = 19,29
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.20 = 20,30
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.21 = 21,31
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.22 = 22,32
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.23 = 23,33
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.24 = 24,34
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.25 = 25,35
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.26 = 26,36
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.27 = 27,36
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.28 = 28,37
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.29 = 29,37
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.30 = 30,40
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.31 = 31,40
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.32 = 32,40
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.33 = 33,40
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.34 = 34,40
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.35 = 35,50
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.36 = 36,50
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.37 = 37,50
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.38 = 38,50
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.39 = 39,50
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.40 = 40,50
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.41 = 41,50
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.42 = 42,50
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.43 = 43,50
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.44 = 44,50
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.45 = 45,55
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.46 = 46,55
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.47 = 47,55
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.48 = 48,55
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.49 = 49,55
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.50 = 50,63
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.51 = 51,63
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.52 = 52,63
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.53 = 53,63
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.54 = 54,63
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.55 = 55,63
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.56 = 56,63
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.57 = 57,84
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.58 = 58,84
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.59 = 59,87
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.60 = 60,100
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.61 = 80,100
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.62 = 85,127
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.63 = 90,127
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.64 = 95,127
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.65 = 100,127
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.66 = 105,127
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.67 = 110,130
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.68 = 115,142
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.69 = 120,142
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.70 = 125,200
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.71 = 130,200
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.72 = 136,200
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.73 = 142,200
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.74 = 148,200
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.75 = 154,200
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.76 = 160,200
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.77 = 166,200
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.78 = 172,200
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.79 = 178,200
+RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.80 = 187,296
 
 # Expansion filter using derived bracket from RequiredLevel:
 #   Classic (<= 60), TBC (61-70), Wrath (71+)
@@ -144,7 +263,7 @@ RandomLoot.Filter.Bonding.Include.QuestItemUnused = 1
 # Restrict pool behavior
 RandomLoot.Filter.EquippableOnly = 0
 RandomLoot.Filter.AllowQuestItems = 0
-RandomLoot.Filter.AllowContainers = 0
+RandomLoot.Filter.AllowContainers = 1
 RandomLoot.Filter.AllowItemsWithSpells = 1
 RandomLoot.Filter.AllowBindOnPickup = 1
 

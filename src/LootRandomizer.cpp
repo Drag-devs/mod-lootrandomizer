@@ -14,6 +14,8 @@
 #include "ScriptMgr.h"
 
 #include <algorithm>
+#include <array>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <set>
@@ -24,6 +26,10 @@
 
 namespace
 {
+    constexpr uint8 MAX_PLAYER_LEVEL = 80;
+    constexpr uint32 ITEM_SUBCLASS_MISC_PET = 2;
+    constexpr uint32 ITEM_SUBCLASS_MISC_MOUNT = 5;
+
     struct EligibleItemTypes
     {
         bool FilterEnabled = false;
@@ -108,6 +114,24 @@ namespace
         bool AllowItemsWithSpells = true;
         bool AllowBindOnPickup = true;
         bool RequireExistingLoot = false;
+    };
+
+    struct PlayerLevelBracket
+    {
+        bool Enabled = false;
+        bool BracketEquippableOnly = false;
+        bool ConfigurationValid = true;
+        uint8 UpperLevelOffset = 10;
+        std::array<uint32, MAX_PLAYER_LEVEL + 1> MinItemLevel {};
+        std::array<uint32, MAX_PLAYER_LEVEL + 1> MaxItemLevel {};
+    };
+
+    struct CompanionLootConfig
+    {
+        bool PetsEnabled = true;
+        float PetChance = 1.0f;
+        bool MountsEnabled = true;
+        float MountChance = 1.0f;
     };
 
     class RandomLootState
@@ -227,6 +251,13 @@ namespace
             _filters.AllowBindOnPickup = sConfigMgr->GetOption<bool>("RandomLoot.Filter.AllowBindOnPickup", true, false);
             _filters.RequireExistingLoot = sConfigMgr->GetOption<bool>("RandomLoot.Filter.RequireExistingLoot", false, false);
 
+            LoadPlayerLevelBracketConfig();
+
+            _companionLoot.PetsEnabled = sConfigMgr->GetOption<bool>("RandomLoot.Companion.Pets.Enabled", true, false);
+            _companionLoot.PetChance = std::clamp(sConfigMgr->GetOption<float>("RandomLoot.Companion.Pets.Chance", 1.0f, false), 0.0f, 100.0f);
+            _companionLoot.MountsEnabled = sConfigMgr->GetOption<bool>("RandomLoot.Companion.Mounts.Enabled", true, false);
+            _companionLoot.MountChance = std::clamp(sConfigMgr->GetOption<float>("RandomLoot.Companion.Mounts.Chance", 1.0f, false), 0.0f, 100.0f);
+
             // Account exclusions
             _excludedAccountIds.clear();
             std::string excludeList = sConfigMgr->GetOption<std::string>("RandomLoot.Account.ExcludeIds", "", false);
@@ -241,20 +272,46 @@ namespace
                 }
             }
 
-            _maxAccountId = static_cast<uint32>(std::max<int32>(0, sConfigMgr->GetOption<int32>("RandomLoot.Account.MaxId", 0, false)));
+            _hasExcludedAccountRange = false;
+            std::string excludeRange = sConfigMgr->GetOption<std::string>("RandomLoot.Account.ExcludeRange", "", false);
+            if (!excludeRange.empty())
+            {
+                std::istringstream rangeStream(excludeRange);
+                std::vector<std::string> rangeValues;
+                std::string value;
+                while (std::getline(rangeStream, value, ','))
+                    rangeValues.push_back(value);
+
+                if (rangeValues.size() != 2)
+                {
+                    LOG_WARN("module.RandomLoot", "mod-lootrandomizer: RandomLoot.Account.ExcludeRange must contain exactly two comma-separated account IDs: '{}'.", excludeRange);
+                }
+                else
+                {
+                    try
+                    {
+                        uint64 rangeStart = std::stoull(rangeValues[0]);
+                        uint64 rangeEnd = std::stoull(rangeValues[1]);
+                        if (rangeStart > std::numeric_limits<uint32>::max() ||
+                            rangeEnd > std::numeric_limits<uint32>::max() || rangeStart > rangeEnd)
+                        {
+                            LOG_WARN("module.RandomLoot", "mod-lootrandomizer: invalid RandomLoot.Account.ExcludeRange: '{}'.", excludeRange);
+                        }
+                        else
+                        {
+                            _excludedAccountRangeStart = static_cast<uint32>(rangeStart);
+                            _excludedAccountRangeEnd = static_cast<uint32>(rangeEnd);
+                            _hasExcludedAccountRange = true;
+                        }
+                    }
+                    catch (...)
+                    {
+                        LOG_WARN("module.RandomLoot", "mod-lootrandomizer: invalid RandomLoot.Account.ExcludeRange: '{}'.", excludeRange);
+                    }
+                }
+            }
 
             _chanceByLevel.clear();
-
-            // Defaults match your requested baseline, and can be overridden by explicit level keys.
-            SetChance(1, 1.0f);
-            SetChance(10, 2.0f);
-            SetChance(20, 3.0f);
-            SetChance(30, 4.0f);
-            SetChance(40, 5.0f);
-            SetChance(50, 6.5f);
-            SetChance(60, 8.0f);
-            SetChance(70, 10.0f);
-            SetChance(80, 15.0f);
 
             for (uint8 level = 1; level <= 80; ++level)
             {
@@ -262,9 +319,6 @@ namespace
                 if (value >= 0.0f)
                     _chanceByLevel[level] = value;
             }
-
-            if (_chanceByLevel.empty())
-                _chanceByLevel[1] = 0.0f;
         }
 
         void RebuildItemPool()
@@ -279,6 +333,10 @@ namespace
             // Caller must hold _mutex in unique mode.
 
             _eligibleItemIds.clear();
+            _petItemIds.clear();
+            _mountItemIds.clear();
+            for (std::vector<uint32>& itemIds : _playerLevelEligibleItemIds)
+                itemIds.clear();
 
             if (!_enabled)
                 return;
@@ -295,17 +353,32 @@ namespace
             _hasBuiltPoolSinceConfig = true;
 
             _eligibleItemIds.reserve(items->size());
+            _petItemIds.reserve(items->size());
+            _mountItemIds.reserve(items->size());
 
             for (ItemTemplateContainer::const_iterator itr = items->begin(); itr != items->end(); ++itr)
             {
                 ItemTemplate const& itemTemplate = itr->second;
-                if (MatchesFilters(itemTemplate))
+                if (IsPet(itemTemplate))
+                {
+                    if (MatchesFilters(itemTemplate, true))
+                        _petItemIds.push_back(itemTemplate.ItemId);
+                }
+                else if (IsMount(itemTemplate))
+                {
+                    if (MatchesFilters(itemTemplate, true))
+                        _mountItemIds.push_back(itemTemplate.ItemId);
+                }
+                else if (MatchesFilters(itemTemplate))
                     _eligibleItemIds.push_back(itemTemplate.ItemId);
             }
 
-            LOG_INFO("module.RandomLoot", "mod-lootrandomizer built item pool: {} eligible items", _eligibleItemIds.size());
+            if (_playerLevelBracket.Enabled)
+                RebuildPlayerLevelCandidatePoolsLocked();
 
-            if (_eligibleItemIds.empty())
+            LOG_INFO("module.RandomLoot", "mod-lootrandomizer built item pools: {} normal items, {} pets, {} mounts", _eligibleItemIds.size(), _petItemIds.size(), _mountItemIds.size());
+
+            if (_eligibleItemIds.empty() && _petItemIds.empty() && _mountItemIds.empty())
             {
                 uint32 equippableCount = 0;
                 uint32 qualityMatchCount = 0;
@@ -346,24 +419,28 @@ namespace
             uint32 accountId = killer->GetSession()->GetAccountId();
             if (!_excludedAccountIds.empty() && _excludedAccountIds.count(accountId))
                 return;
-            if (_maxAccountId > 0 && accountId > _maxAccountId)
+            if (_hasExcludedAccountRange && accountId >= _excludedAccountRangeStart &&
+                accountId <= _excludedAccountRangeEnd)
                 return;
 
             // Retry pool build only when needed: either never built since config load, or templates were empty on last build.
-            if (_eligibleItemIds.empty() && (!_hasBuiltPoolSinceConfig || _templatesWereEmptyOnLastBuild))
+            if (_eligibleItemIds.empty() && _petItemIds.empty() && _mountItemIds.empty() &&
+                (!_hasBuiltPoolSinceConfig || _templatesWereEmptyOnLastBuild))
                 RebuildItemPoolLocked();
 
-            if (_eligibleItemIds.empty())
+            uint8 playerLevel = std::clamp<uint8>(killer->GetLevel(), 1, MAX_PLAYER_LEVEL);
+            std::vector<uint32> const& candidateItemIds = _playerLevelBracket.Enabled
+                ? _playerLevelEligibleItemIds[playerLevel]
+                : _eligibleItemIds;
+
+            bool hasPetCandidates = _companionLoot.PetsEnabled && !_petItemIds.empty();
+            bool hasMountCandidates = _companionLoot.MountsEnabled && !_mountItemIds.empty();
+            if (candidateItemIds.empty() && !hasPetCandidates && !hasMountCandidates)
                 return;
 
             bool hadAnyLootBeforeRandom = !killed->loot.isLooted();
 
             if (_filters.RequireExistingLoot && !hadAnyLootBeforeRandom)
-                return;
-
-            uint8 creatureLevel = killed->GetLevel();
-            float chance = GetChanceForLevel(creatureLevel);
-            if (chance <= 0.0f || !roll_chance_f(chance))
                 return;
 
             // Loot::AddItem relies on lootOwnerGUID to determine whether generated items are lootable.
@@ -379,39 +456,29 @@ namespace
             if (killed->loot.items.size() >= MAX_NR_LOOT_ITEMS)
                 return;
 
-            uint32 minItems = static_cast<uint32>(_minItems);
-            uint32 maxItems = static_cast<uint32>(_maxItems);
-
-            if (maxItems < minItems)
-                std::swap(maxItems, minItems);
-
-            uint32 countToAdd = (minItems == maxItems) ? minItems : urand(minItems, maxItems);
-            if (countToAdd == 0)
-                return;
-
             bool addedAnyRandomLoot = false;
 
-            uint32 availableSlots = MAX_NR_LOOT_ITEMS - static_cast<uint32>(killed->loot.items.size());
-            countToAdd = std::min<uint32>(countToAdd, availableSlots);
-            countToAdd = std::min<uint32>(countToAdd, static_cast<uint32>(_eligibleItemIds.size()));
-
-            if (countToAdd == 0)
-                return;
-
-            std::vector<uint32> indices(_eligibleItemIds.size());
-            for (uint32 i = 0; i < indices.size(); ++i)
-                indices[i] = i;
-
-            for (uint32 i = 0; i < countToAdd; ++i)
+            if (!candidateItemIds.empty())
             {
-                uint32 randomPos = urand(i, static_cast<uint32>(indices.size() - 1));
-                std::swap(indices[i], indices[randomPos]);
+                float chance = GetChanceForLevel(killed->GetLevel());
+                if (chance > 0.0f && roll_chance_f(chance))
+                {
+                    uint32 minItems = static_cast<uint32>(_minItems);
+                    uint32 maxItems = static_cast<uint32>(_maxItems);
 
-                uint32 itemId = _eligibleItemIds[indices[i]];
-                LootStoreItem randomLoot(itemId, 0, 100.0f, false, LOOT_MODE_DEFAULT, 0, 1, 1);
-                killed->loot.AddItem(randomLoot);
-                addedAnyRandomLoot = true;
+                    if (maxItems < minItems)
+                        std::swap(maxItems, minItems);
+
+                    uint32 countToAdd = (minItems == maxItems) ? minItems : urand(minItems, maxItems);
+                    addedAnyRandomLoot = AddRandomLootItems(killed, candidateItemIds, countToAdd);
+                }
             }
+
+            if (hasPetCandidates && roll_chance_f(_companionLoot.PetChance))
+                addedAnyRandomLoot = AddRandomLootItems(killed, _petItemIds, 1) || addedAnyRandomLoot;
+
+            if (hasMountCandidates && roll_chance_f(_companionLoot.MountChance))
+                addedAnyRandomLoot = AddRandomLootItems(killed, _mountItemIds, 1) || addedAnyRandomLoot;
 
             // If base loot was empty, core may have already removed the lootable flag.
             // Ensure the corpse becomes lootable when random loot is added.
@@ -422,10 +489,130 @@ namespace
         }
 
     private:
-        void SetChance(uint8 level, float defaultValue)
+        void LoadPlayerLevelBracketConfig()
         {
-            float configured = sConfigMgr->GetOption<float>("RandomLoot.Chance.Level." + std::to_string(level), defaultValue, false);
-            _chanceByLevel[level] = std::max(0.0f, configured);
+            _playerLevelBracket = {};
+            _playerLevelBracket.Enabled = sConfigMgr->GetOption<bool>("RandomLoot.Filter.PlayerLevelBracket.Enabled", false, false);
+            _playerLevelBracket.BracketEquippableOnly = sConfigMgr->GetOption<bool>("RandomLoot.Filter.PlayerLevelBracket.BracketEquippableOnly", false, false);
+
+            int32 configuredOffset = sConfigMgr->GetOption<int32>("RandomLoot.Filter.PlayerLevelBracket.UpperLevelOffset", 10, false);
+            _playerLevelBracket.UpperLevelOffset = static_cast<uint8>(std::clamp<int32>(configuredOffset, 0, MAX_PLAYER_LEVEL));
+
+            if (!_playerLevelBracket.Enabled)
+                return;
+
+            bool valid = true;
+
+            for (uint8 level = 1; level <= MAX_PLAYER_LEVEL; ++level)
+            {
+                std::string mapping = sConfigMgr->GetOption<std::string>("RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel." + std::to_string(level), "", false);
+                size_t separator = mapping.find(',');
+                if (separator == std::string::npos || mapping.find(',', separator + 1) != std::string::npos)
+                {
+                    LOG_ERROR("module.RandomLoot", "mod-lootrandomizer: invalid PlayerLevelBracket mapping for player level {}. MinMaxItemLevel must contain exactly two comma-separated values.", level);
+                    valid = false;
+                    continue;
+                }
+
+                try
+                {
+                    uint64 minItemLevel = std::stoull(mapping.substr(0, separator));
+                    uint64 maxItemLevel = std::stoull(mapping.substr(separator + 1));
+                    if (minItemLevel == 0 || maxItemLevel == 0 || minItemLevel > maxItemLevel ||
+                        minItemLevel > std::numeric_limits<uint32>::max() || maxItemLevel > std::numeric_limits<uint32>::max())
+                    {
+                        LOG_ERROR("module.RandomLoot", "mod-lootrandomizer: invalid PlayerLevelBracket mapping for player level {}: '{}'.", level, mapping);
+                        valid = false;
+                        continue;
+                    }
+
+                    _playerLevelBracket.MinItemLevel[level] = static_cast<uint32>(minItemLevel);
+                    _playerLevelBracket.MaxItemLevel[level] = static_cast<uint32>(maxItemLevel);
+                }
+                catch (...)
+                {
+                    LOG_ERROR("module.RandomLoot", "mod-lootrandomizer: invalid PlayerLevelBracket mapping for player level {}: '{}'.", level, mapping);
+                    valid = false;
+                }
+            }
+
+            for (uint8 level = 1; level <= MAX_PLAYER_LEVEL; ++level)
+            {
+                uint8 lowerLevel = level > _playerLevelBracket.UpperLevelOffset
+                    ? level - _playerLevelBracket.UpperLevelOffset
+                    : 1;
+                uint8 upperLevel = std::min<uint8>(MAX_PLAYER_LEVEL, level + _playerLevelBracket.UpperLevelOffset);
+                if (_playerLevelBracket.MinItemLevel[lowerLevel] > _playerLevelBracket.MaxItemLevel[upperLevel])
+                {
+                    LOG_ERROR("module.RandomLoot", "mod-lootrandomizer: PlayerLevelBracket range is empty for player level {} with boundaries {} through {}.", level, lowerLevel, upperLevel);
+                    valid = false;
+                }
+            }
+
+            if (!valid)
+            {
+                LOG_ERROR("module.RandomLoot", "mod-lootrandomizer: PlayerLevelBracket is enabled but invalid. No random loot will be added until its configuration is corrected.");
+                _playerLevelBracket.ConfigurationValid = false;
+            }
+        }
+
+        void RebuildPlayerLevelCandidatePoolsLocked()
+        {
+            if (!_playerLevelBracket.ConfigurationValid)
+                return;
+
+            for (uint8 playerLevel = 1; playerLevel <= MAX_PLAYER_LEVEL; ++playerLevel)
+            {
+                uint8 lowerLevel = playerLevel > _playerLevelBracket.UpperLevelOffset
+                    ? playerLevel - _playerLevelBracket.UpperLevelOffset
+                    : 1;
+                uint8 upperLevel = std::min<uint8>(MAX_PLAYER_LEVEL, playerLevel + _playerLevelBracket.UpperLevelOffset);
+                uint32 minItemLevel = _playerLevelBracket.MinItemLevel[lowerLevel];
+                uint32 maxItemLevel = _playerLevelBracket.MaxItemLevel[upperLevel];
+                std::vector<uint32>& candidateItemIds = _playerLevelEligibleItemIds[playerLevel];
+                candidateItemIds.reserve(_eligibleItemIds.size());
+
+                for (uint32 itemId : _eligibleItemIds)
+                {
+                    ItemTemplate const* itemTemplate = sObjectMgr->GetItemTemplate(itemId);
+                    if (!itemTemplate)
+                        continue;
+
+                    if (_playerLevelBracket.BracketEquippableOnly && !IsItemEquippable(*itemTemplate))
+                    {
+                        candidateItemIds.push_back(itemId);
+                        continue;
+                    }
+
+                    if (itemTemplate->ItemLevel >= minItemLevel && itemTemplate->ItemLevel <= maxItemLevel)
+                        candidateItemIds.push_back(itemId);
+                }
+            }
+        }
+
+        bool AddRandomLootItems(Creature* killed, std::vector<uint32> const& itemIds, uint32 requestedCount) const
+        {
+            if (itemIds.empty() || requestedCount == 0 || killed->loot.items.size() >= MAX_NR_LOOT_ITEMS)
+                return false;
+
+            uint32 availableSlots = MAX_NR_LOOT_ITEMS - static_cast<uint32>(killed->loot.items.size());
+            uint32 countToAdd = std::min<uint32>(requestedCount, availableSlots);
+            countToAdd = std::min<uint32>(countToAdd, static_cast<uint32>(itemIds.size()));
+
+            std::vector<uint32> indices(itemIds.size());
+            for (uint32 i = 0; i < indices.size(); ++i)
+                indices[i] = i;
+
+            for (uint32 i = 0; i < countToAdd; ++i)
+            {
+                uint32 randomPos = urand(i, static_cast<uint32>(indices.size() - 1));
+                std::swap(indices[i], indices[randomPos]);
+
+                LootStoreItem randomLoot(itemIds[indices[i]], 0, 100.0f, false, LOOT_MODE_DEFAULT, 0, 1, 1);
+                killed->loot.AddItem(randomLoot);
+            }
+
+            return countToAdd > 0;
         }
 
         float GetChanceForLevel(uint8 level) const
@@ -435,7 +622,7 @@ namespace
 
             std::map<uint8, float>::const_iterator itr = _chanceByLevel.upper_bound(level);
             if (itr == _chanceByLevel.begin())
-                return itr->second;
+                return 0.0f;
 
             --itr;
             return itr->second;
@@ -466,7 +653,17 @@ namespace
             return 0;     // Classic
         }
 
-        bool MatchesFilters(ItemTemplate const& itemTemplate) const
+        bool IsPet(ItemTemplate const& itemTemplate) const
+        {
+            return itemTemplate.Class == ITEM_CLASS_MISC && itemTemplate.SubClass == ITEM_SUBCLASS_MISC_PET;
+        }
+
+        bool IsMount(ItemTemplate const& itemTemplate) const
+        {
+            return itemTemplate.Class == ITEM_CLASS_MISC && itemTemplate.SubClass == ITEM_SUBCLASS_MISC_MOUNT;
+        }
+
+        bool MatchesFilters(ItemTemplate const& itemTemplate, bool bypassLevelFilters = false) const
         {
             if (!MatchesEligibleTypes(itemTemplate))
                 return false;
@@ -474,15 +671,18 @@ namespace
             if (!MatchesQualityFilter(itemTemplate))
                 return false;
 
-            if (_filters.RequiredLevelMin > 0 && itemTemplate.RequiredLevel < static_cast<uint32>(_filters.RequiredLevelMin))
-                return false;
-            if (_filters.RequiredLevelMax > 0 && itemTemplate.RequiredLevel > static_cast<uint32>(_filters.RequiredLevelMax))
-                return false;
+            if (!bypassLevelFilters)
+            {
+                if (_filters.RequiredLevelMin > 0 && itemTemplate.RequiredLevel < static_cast<uint32>(_filters.RequiredLevelMin))
+                    return false;
+                if (_filters.RequiredLevelMax > 0 && itemTemplate.RequiredLevel > static_cast<uint32>(_filters.RequiredLevelMax))
+                    return false;
 
-            if (_filters.ItemLevelMin > 0 && itemTemplate.ItemLevel < static_cast<uint32>(_filters.ItemLevelMin))
-                return false;
-            if (_filters.ItemLevelMax > 0 && itemTemplate.ItemLevel > static_cast<uint32>(_filters.ItemLevelMax))
-                return false;
+                if (_filters.ItemLevelMin > 0 && itemTemplate.ItemLevel < static_cast<uint32>(_filters.ItemLevelMin))
+                    return false;
+                if (_filters.ItemLevelMax > 0 && itemTemplate.ItemLevel > static_cast<uint32>(_filters.ItemLevelMax))
+                    return false;
+            }
 
             if (!MatchesBondingFilter(itemTemplate))
                 return false;
@@ -688,16 +888,23 @@ namespace
 
         bool _enabled = true;
         std::set<uint32> _excludedAccountIds;
-        uint32 _maxAccountId = 0;
+        bool _hasExcludedAccountRange = false;
+        uint32 _excludedAccountRangeStart = 0;
+        uint32 _excludedAccountRangeEnd = 0;
         int32 _minItems = 1;
         int32 _maxItems = 1;
         EligibleItemTypes _eligibleTypes;
         RandomLootFilters _filters;
+        PlayerLevelBracket _playerLevelBracket;
+        CompanionLootConfig _companionLoot;
         bool _hasBuiltPoolSinceConfig = false;
         bool _templatesWereEmptyOnLastBuild = true;
 
         std::map<uint8, float> _chanceByLevel;
         std::vector<uint32> _eligibleItemIds;
+        std::vector<uint32> _petItemIds;
+        std::vector<uint32> _mountItemIds;
+        std::array<std::vector<uint32>, MAX_PLAYER_LEVEL + 1> _playerLevelEligibleItemIds;
     };
 
     RandomLootState sRandomLootState;
@@ -707,10 +914,12 @@ namespace
     public:
         RandomLootWorldScript() : WorldScript("RandomLootWorldScript") { }
 
-        void OnAfterConfigLoad(bool /*reload*/) override
+        void OnAfterConfigLoad(bool reload) override
         {
             sRandomLootState.LoadConfig();
-            sRandomLootState.RebuildItemPool();
+
+            if (reload)
+                sRandomLootState.RebuildItemPool();
         }
 
         void OnStartup() override
