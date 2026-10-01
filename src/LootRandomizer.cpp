@@ -12,6 +12,9 @@
 #include "Player.h"
 #include "Random.h"
 #include "ScriptMgr.h"
+#include "SpellAuraDefines.h"
+#include "SpellInfo.h"
+#include "SpellMgr.h"
 
 #include <algorithm>
 #include <array>
@@ -108,11 +111,6 @@ namespace
         bool BondingQuestItem = true;
         bool BondingQuestItemUnused = true;
 
-        bool EquippableOnly = false;
-        bool AllowQuestItems = false;
-        bool AllowContainers = false;
-        bool AllowItemsWithSpells = true;
-        bool AllowBindOnPickup = true;
         bool RequireExistingLoot = false;
     };
 
@@ -244,11 +242,6 @@ namespace
                 _filters.BondingFilterEnabled = false;
             }
 
-            _filters.EquippableOnly = sConfigMgr->GetOption<bool>("RandomLoot.Filter.EquippableOnly", false, false);
-            _filters.AllowQuestItems = sConfigMgr->GetOption<bool>("RandomLoot.Filter.AllowQuestItems", false, false);
-            _filters.AllowContainers = sConfigMgr->GetOption<bool>("RandomLoot.Filter.AllowContainers", false, false);
-            _filters.AllowItemsWithSpells = sConfigMgr->GetOption<bool>("RandomLoot.Filter.AllowItemsWithSpells", true, false);
-            _filters.AllowBindOnPickup = sConfigMgr->GetOption<bool>("RandomLoot.Filter.AllowBindOnPickup", true, false);
             _filters.RequireExistingLoot = sConfigMgr->GetOption<bool>("RandomLoot.Filter.RequireExistingLoot", false, false);
 
             LoadPlayerLevelBracketConfig();
@@ -260,6 +253,7 @@ namespace
 
             // Account exclusions
             _excludedAccountIds.clear();
+            _allowRandomLootWhenGrouped = sConfigMgr->GetOption<bool>("RandomLoot.Account.AllowRandomLootWhenGrouped", false, false);
             std::string excludeList = sConfigMgr->GetOption<std::string>("RandomLoot.Account.ExcludeIds", "", false);
             if (!excludeList.empty())
             {
@@ -399,10 +393,9 @@ namespace
                 }
 
                 LOG_WARN("module.RandomLoot",
-                    "mod-lootrandomizer eligible pool is empty. item_template rows={}, typeMatches={}, equippable={}, qualityMatches={}. Current filters: TypeFilterEnabled={}, QualityFilterEnabled={}, ExpansionFilterEnabled={}, BondingFilterEnabled={}, EquippableOnly={}, AllowQuestItems={}, AllowContainers={}, AllowItemsWithSpells={}, AllowBindOnPickup={}",
+                    "mod-lootrandomizer eligible pool is empty. item_template rows={}, typeMatches={}, equippable={}, qualityMatches={}. Current filters: TypeFilterEnabled={}, QualityFilterEnabled={}, ExpansionFilterEnabled={}, BondingFilterEnabled={}",
                     items->size(), typeMatchCount, equippableCount, qualityMatchCount,
-                    _eligibleTypes.FilterEnabled, _filters.QualityFilterEnabled, _filters.ExpansionFilterEnabled, _filters.BondingFilterEnabled, _filters.EquippableOnly,
-                    _filters.AllowQuestItems, _filters.AllowContainers, _filters.AllowItemsWithSpells, _filters.AllowBindOnPickup);
+                    _eligibleTypes.FilterEnabled, _filters.QualityFilterEnabled, _filters.ExpansionFilterEnabled, _filters.BondingFilterEnabled);
             }
         }
 
@@ -417,10 +410,8 @@ namespace
                 return;
 
             uint32 accountId = killer->GetSession()->GetAccountId();
-            if (!_excludedAccountIds.empty() && _excludedAccountIds.count(accountId))
-                return;
-            if (_hasExcludedAccountRange && accountId >= _excludedAccountRangeStart &&
-                accountId <= _excludedAccountRangeEnd)
+            if (IsAccountExcluded(accountId) &&
+                !(_allowRandomLootWhenGrouped && killer->GetGroup()))
                 return;
 
             // Retry pool build only when needed: either never built since config load, or templates were empty on last build.
@@ -489,6 +480,15 @@ namespace
         }
 
     private:
+        bool IsAccountExcluded(uint32 accountId) const
+        {
+            if (!_excludedAccountIds.empty() && _excludedAccountIds.count(accountId))
+                return true;
+
+            return _hasExcludedAccountRange && accountId >= _excludedAccountRangeStart &&
+                accountId <= _excludedAccountRangeEnd;
+        }
+
         void LoadPlayerLevelBracketConfig()
         {
             _playerLevelBracket = {};
@@ -633,17 +633,6 @@ namespace
             return itemTemplate.InventoryType != 0;
         }
 
-        bool HasSpellData(ItemTemplate const& itemTemplate) const
-        {
-            for (uint8 i = 0; i < MAX_ITEM_PROTO_SPELLS; ++i)
-            {
-                if (itemTemplate.Spells[i].SpellId != 0)
-                    return true;
-            }
-
-            return false;
-        }
-
         uint8 GetExpansionFromRequiredLevel(ItemTemplate const& itemTemplate) const
         {
             if (itemTemplate.RequiredLevel > 70)
@@ -655,12 +644,32 @@ namespace
 
         bool IsPet(ItemTemplate const& itemTemplate) const
         {
-            return itemTemplate.Class == ITEM_CLASS_MISC && itemTemplate.SubClass == ITEM_SUBCLASS_MISC_PET;
+            if (itemTemplate.Class == ITEM_CLASS_MISC && itemTemplate.SubClass == ITEM_SUBCLASS_MISC_PET)
+                return true;
+
+            for (uint8 i = 0; i < MAX_ITEM_PROTO_SPELLS; ++i)
+            {
+                SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(itemTemplate.Spells[i].SpellId);
+                if (spellInfo && spellInfo->HasEffect(SPELL_EFFECT_SUMMON_PET))
+                    return true;
+            }
+
+            return false;
         }
 
         bool IsMount(ItemTemplate const& itemTemplate) const
         {
-            return itemTemplate.Class == ITEM_CLASS_MISC && itemTemplate.SubClass == ITEM_SUBCLASS_MISC_MOUNT;
+            if (itemTemplate.Class == ITEM_CLASS_MISC && itemTemplate.SubClass == ITEM_SUBCLASS_MISC_MOUNT)
+                return true;
+
+            for (uint8 i = 0; i < MAX_ITEM_PROTO_SPELLS; ++i)
+            {
+                SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(itemTemplate.Spells[i].SpellId);
+                if (spellInfo && spellInfo->HasAura(SPELL_AURA_MOUNTED))
+                    return true;
+            }
+
+            return false;
         }
 
         bool MatchesFilters(ItemTemplate const& itemTemplate, bool bypassLevelFilters = false) const
@@ -688,21 +697,6 @@ namespace
                 return false;
 
             if (!MatchesExpansionFilter(itemTemplate))
-                return false;
-
-            if (_filters.EquippableOnly && !IsItemEquippable(itemTemplate))
-                return false;
-
-            if (!_filters.AllowQuestItems && itemTemplate.Class == ITEM_CLASS_QUEST)
-                return false;
-
-            if (!_filters.AllowContainers && itemTemplate.Class == ITEM_CLASS_CONTAINER)
-                return false;
-
-            if (!_filters.AllowItemsWithSpells && HasSpellData(itemTemplate))
-                return false;
-
-            if (!_filters.AllowBindOnPickup && itemTemplate.Bonding == BIND_WHEN_PICKED_UP)
                 return false;
 
             return true;
@@ -888,6 +882,7 @@ namespace
 
         bool _enabled = true;
         std::set<uint32> _excludedAccountIds;
+        bool _allowRandomLootWhenGrouped = false;
         bool _hasExcludedAccountRange = false;
         uint32 _excludedAccountRangeStart = 0;
         uint32 _excludedAccountRangeEnd = 0;

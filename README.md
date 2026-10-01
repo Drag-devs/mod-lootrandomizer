@@ -31,6 +31,7 @@ Important keys:
 - `RandomLoot.Enable`
 - `RandomLoot.Account.ExcludeIds`
 - `RandomLoot.Account.ExcludeRange`
+- `RandomLoot.Account.AllowRandomLootWhenGrouped`
 - `RandomLoot.Chance.Level.*`
 - `RandomLoot.MinItems`
 - `RandomLoot.MaxItems`
@@ -46,6 +47,10 @@ configured key has a 0% chance, so `RandomLoot.Chance.Level.1` is normally retai
 `1000,1377` excludes every account from 1000 through 1377. It can be combined with the individual
 IDs in `RandomLoot.Account.ExcludeIds`.
 
+Set `RandomLoot.Account.AllowRandomLootWhenGrouped = 1` when excluded playerbots only group with
+real players. This allows a playerbot killing blow to generate random loot for that group while
+excluded solo playerbots remain blocked.
+
 ## Notes about filtering
 
 - Type filtering is controlled by `RandomLoot.Filter.TypeFilterEnabled` and `RandomLoot.Filter.Include.*` keys (inclusive OR).
@@ -55,8 +60,6 @@ IDs in `RandomLoot.Account.ExcludeIds`.
   - TBC (`61-70`)
   - Wrath (`71+`)
 - Bonding filtering is controlled by `RandomLoot.Filter.Bonding.FilterEnabled` and `RandomLoot.Filter.Bonding.Include.*` keys.
-- `EquippableOnly` uses non-zero `InventoryType`.
-- `AllowItemsWithSpells` checks item spell slots in template data.
 - `RandomLoot.Filter.RequireExistingLoot` controls whether random loot can appear on creatures that had no base loot. Random loot is added on top of normal loot and does not replace normal drops.
 
 ## Player-Level Bracket
@@ -80,10 +83,11 @@ fails closed and adds no random loot.
 
 ## Companion Loot
 
-Pets (`Class=15`, `SubClass=2`) and mounts (`Class=15`, `SubClass=5`) are excluded from the normal
-pool and rolled independently per eligible kill. Each category has its own enable flag and percentage
-chance; normal items continue to use the creature-level chance. One pet and one mount can be added
-when corpse loot slots allow.
+Pets and mounts are excluded from the normal pool and rolled independently per eligible kill. Pets
+include standard `Class=15`, `SubClass=2` items and legacy items whose use spell summons a pet.
+Mounts include standard `Class=15`, `SubClass=5` items and legacy items whose use spell applies the
+mounted aura. Each category has its own enable flag and percentage chance; normal items continue to
+use the creature-level chance. One pet and one mount can be added when corpse loot slots allow.
 They bypass required-level, item-level, and player-level bracket filters, but otherwise retain the
 module's configured filtering. When type filtering is enabled, `RandomLoot.Filter.Include.Misc` must
 remain enabled. Other `Class=15` miscellaneous subclasses continue through the normal loot pool.

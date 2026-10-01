@@ -22,9 +22,16 @@ RandomLoot.Enable = 0
 #     Example: 1000,1377 excludes account IDs 1000 through 1377, including both endpoints.
 #     Leave empty to disable range exclusion. The first ID must not be greater than the second.
 # Default: "" (no range exclusion)
+#
+# RandomLoot.Account.AllowRandomLootWhenGrouped
+#     Allows an excluded killer to generate random loot while they are in a group.
+#     Intended for playerbots grouped with real players, so a playerbot killing blow does not
+#     suppress random loot for the group.
+# Default: 0 (excluded killers never generate random loot)
 ###################################################################################################
 RandomLoot.Account.ExcludeIds =
 RandomLoot.Account.ExcludeRange =
+RandomLoot.Account.AllowRandomLootWhenGrouped = 0
 
 ###################################################################################################
 # Chance by creature level (percent chance per kill)
@@ -124,8 +131,10 @@ RandomLoot.Filter.ItemLevel.Max = 0
 ###################################################################################################
 # Companion loot
 #
-# Pets (item_template Class=15, SubClass=2) and mounts (Class=15, SubClass=5) are removed from the
-# normal random-loot pool and rolled independently for each eligible kill.
+# Pets and mounts are removed from the normal random-loot pool and rolled independently for each
+# eligible kill. Pets include the standard Class=15, SubClass=2 items and legacy items whose use
+# spell summons a pet. Mounts include standard Class=15, SubClass=5 items and legacy items whose use
+# spell applies the mounted aura.
 # They ignore required-level, item-level, and player-level bracket filters, but still obey the other
 # configured filters. When type filtering is enabled, RandomLoot.Filter.Include.Misc must be enabled
 # for companions to be eligible. Other miscellaneous subclasses remain in the normal loot pool.
@@ -259,13 +268,6 @@ RandomLoot.Filter.Bonding.Include.BindOnEquip = 1
 RandomLoot.Filter.Bonding.Include.BindOnUse = 1
 RandomLoot.Filter.Bonding.Include.QuestItem = 1
 RandomLoot.Filter.Bonding.Include.QuestItemUnused = 1
-
-# Restrict pool behavior
-RandomLoot.Filter.EquippableOnly = 0
-RandomLoot.Filter.AllowQuestItems = 0
-RandomLoot.Filter.AllowContainers = 1
-RandomLoot.Filter.AllowItemsWithSpells = 1
-RandomLoot.Filter.AllowBindOnPickup = 1
 
 # Random loot is additive: it is appended and never replaces normal loot.
 # If 1, random loot is only added when the creature already had base loot/money.
