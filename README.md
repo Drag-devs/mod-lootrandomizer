@@ -28,8 +28,8 @@ See `conf/lootrandomizer.conf.dist` for every available setting and default valu
 ### Module And Account Controls
 
 - Enable or disable the module
-- Exclude individual accounts or an inclusive account ID range
-- Allow excluded playerbots to generate random loot while grouped with real players
+- Exclude individual accounts or an account ID range
+- Allow excluded accounts to generate random loot while grouped with real players (in the case of grouping with playerbots)
 
 ### Chance And Item Count
 
@@ -110,16 +110,19 @@ Random loot is additive: it is appended and never replaces normal loot.
 
 `RandomLoot.Filter.PlayerLevelBracket.Enabled` is disabled by default. Each
 `MinMaxItemLevel.<level>` entry uses `minimum,maximum`. When enabled, normal items selected for a
-player use a level window. The module takes the minimum item level from the lower end of that
-window and the maximum item level from the upper end.
+player use a level window. The module takes the minimum ilvl from the lower end of the window and the maximum ilvl from the upper end.
 
-For example, with `UpperLevelOffset = 5`, a level 14 player can receive items within the minimum ilvl from level 9 and the
-maximum ilvl from level 19. In that scenario, with the default mappings, eligible equipment can be between item level 9 through 29.
+For example, with `RandomLoot.Filter.PlayerLevelBracket.UpperLevelOffset = 5`, a level 14 player can receive items within the minimum ilvl from `RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.9` and the
+maximum ilvl from `RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.19`. In that scenario, with the default mappings, eligible equipment can be between ilvl 9 through 29.
 
 Set `RandomLoot.Filter.PlayerLevelBracket.BracketEquippableOnly = 1` to apply this dynamic bracket
-only to normal items with nonzero `InventoryType`. Normal non-equipment items then bypass the dynamic
+only to equippable items. Normal non-equipment items then bypass the dynamic
 bracket but continue to obey all other filters. 
 
 ## SQL
 
-No schema changes are required for this module.
+No SQL changes are required for this module.
+
+## License
+
+GNU General Public License v2 or later, matching AzerothCore. Full text in [LICENSE](LICENSE).
