@@ -4,44 +4,43 @@ AzerothCore module that adds configurable random loot to creature kills.
 
 ## Features
 
-- Enable/disable toggle for the whole module
-- Configurable chance by creature level using `RandomLoot.Chance.Level.X`
+- Configurable random loot chance by creature level using `RandomLoot.Chance.Level.X`
 - Configurable min/max random items to add per successful roll
-- Smart item-pool filtering from `item_template` data already loaded by AzerothCore
-- Optional player-level item-level brackets with a configurable symmetric character-level offset
+- Smart item-pool filtering from `item_template` with many filterable categories and item types
+- Optional player-level item-level brackets with a configurable symmetric character-level offset to keep random loot within a specified range appropriate for a player level
 - Separate configurable pet and mount drop pools
-- Inclusive OR-style item-type filters (for example Rings + Weapons means rings OR weapons)
 - Works for player kills and pet-owner kills
+- Exclude individual or a range of account IDs to, for example, exclude playerbot accounts.
+- Pets and mounts are excluded from the normal pool and rolled independently with their own toggle and configurable chance. 
 
 ## Install
 
 1. Put this folder in your AzerothCore `modules` directory:
-   - `source/azerothcore-wotlk/modules/mod-lootrandomizer`
+   - `source/modules/mod-lootrandomizer`
 2. Re-run CMake.
-3. Rebuild worldserver.
-4. Copy `conf/lootrandomizer.conf.dist` to your server config folder as `lootrandomizer.conf`.
+4. Copy `conf/lootrandomizer.conf.dist` to your server config folder as `lootrandomizer.conf`, configure settings to your liking.
 5. Restart worldserver.
 
-## Config keys
+## Configuration
 
-See `conf/lootrandomizer.conf.dist`.
+See `conf/lootrandomizer.conf.dist` for every available setting and default value.
 
-Important keys:
+### Module And Account Controls
 
-- `RandomLoot.Enable`
-- `RandomLoot.Account.ExcludeIds`
-- `RandomLoot.Account.ExcludeRange`
-- `RandomLoot.Account.AllowRandomLootWhenGrouped`
-- `RandomLoot.Chance.Level.*`
-- `RandomLoot.MinItems`
-- `RandomLoot.MaxItems`
-- `RandomLoot.Filter.*`
-- `RandomLoot.Filter.PlayerLevelBracket.*`
-- `RandomLoot.Companion.*`
+- Enable or disable the module
+- Exclude individual accounts or an inclusive account ID range
+- Allow excluded playerbots to generate random loot while grouped with real players
 
-Chance keys are configurable breakpoints. Only add the levels where the chance changes; each
+### Chance And Item Count
+
+- Set the random-loot chance by creature-level breakpoint
+- Set the minimum and maximum number of normal random items added on a successful roll
+
+`RandomLoot.Chance.Level.*` keys are configurable breakpoints. Only add the levels where the chance changes; each
 intermediate creature level uses the closest lower configured key. A creature below the lowest
 configured key has a 0% chance, so `RandomLoot.Chance.Level.1` is normally retained as the baseline.
+
+### Account Exclusions
 
 `RandomLoot.Account.ExcludeRange` accepts an inclusive `start,end` account ID range. For example,
 `1000,1377` excludes every account from 1000 through 1377. It can be combined with the individual
@@ -51,49 +50,75 @@ Set `RandomLoot.Account.AllowRandomLootWhenGrouped = 1` when excluded playerbots
 real players. This allows a playerbot killing blow to generate random loot for that group while
 excluded solo playerbots remain blocked.
 
+### Item Pool, Brackets, And Companions
+
+- Filter normal loot by item category, equipment family, quality, level, expansion, and binding
+- Apply an optional player-level item-level bracket to normal equipment
+- Configure independent pet and mount companion pools and their chances
+
 ## Notes about filtering
 
-- Type filtering is controlled by `RandomLoot.Filter.TypeFilterEnabled` and `RandomLoot.Filter.Include.*` keys (inclusive OR).
-- Quality filtering is controlled by `RandomLoot.Filter.Quality.FilterEnabled` and `RandomLoot.Filter.Quality.Include.*` keys.
-- Expansion filtering is controlled by `RandomLoot.Filter.Expansion.FilterEnabled` and `RandomLoot.Filter.Expansion.Include.*` keys:
-  - Classic (`<= 60`)
-  - TBC (`61-70`)
-  - Wrath (`71+`)
-- Bonding filtering is controlled by `RandomLoot.Filter.Bonding.FilterEnabled` and `RandomLoot.Filter.Bonding.Include.*` keys.
-- `RandomLoot.Filter.RequireExistingLoot` controls whether random loot can appear on creatures that had no base loot. Random loot is added on top of normal loot and does not replace normal drops.
+Optionally filter the loot pool by the following item categories and equipment families. When type filtering is enabled, an item is included if it matches at least one selected option. Other enabled filters further narrow the pool.
+
+## Available Item Filters
+
+### Item Categories
+
+- Weapons
+- Armor
+- Consumables
+- Containers
+- Gems
+- Reagents
+- Projectiles and ammunition
+- Trade goods
+- Recipes
+- Quivers and ammo pouches
+- Quest items
+- Keys
+- Miscellaneous items
+- Glyphs
+
+### Equipment Families And Slots
+
+- Jewelry: rings, necklaces, and trinkets
+- Individual jewelry types: rings, necklaces, or trinkets
+- Cloaks, shields, relics, and held-in-off-hand items
+- Bags, tabards, and shirts
+- Helmets, shoulders, chest pieces and robes, belts, legs, boots, wrists, and gloves
+- One-hand, main-hand, and off-hand weapons
+- Two-hand weapons
+- Ranged weapons, including bows, guns, wands, and thrown weapons
+
+### Quality, Level, And Expansion
+
+- Item quality: poor, common, uncommon, rare, epic, legendary, artifact, and heirloom
+- Static required-level and item-level minimum or maximum ranges
+- Player-level item-level bracket for normal equipment
+- Expansion bracket derived from required level: Classic (level 60 and below), TBC (61-70), or Wrath
+  (71 and above)
+
+### Binding And Pool Rules
+
+- Binding type: no bind, bind on pickup, bind on equip, bind on use, or either quest-item binding
+- Require existing loot: only add random loot to creatures that already had base loot or money
+- Companion pets and mounts use separate pools and their own independent chances
+
+Random loot is additive: it is appended and never replaces normal loot.
 
 ## Player-Level Bracket
 
 `RandomLoot.Filter.PlayerLevelBracket.Enabled` is disabled by default. Each
 `MinMaxItemLevel.<level>` entry uses `minimum,maximum`. When enabled, normal items selected for a
-player must satisfy:
+player use a level window. The module takes the minimum item level from the lower end of that
+window and the maximum item level from the upper end.
 
-```
-MinMaxItemLevel[max(1, player level - UpperLevelOffset)].minimum <= ItemLevel
-  <= MinMaxItemLevel[min(80, player level + UpperLevelOffset)].maximum
-```
+For example, with `UpperLevelOffset = 5`, a level 14 player can receive items within the minimum ilvl from level 9 and the
+maximum ilvl from level 19. In that scenario, with the default mappings, eligible equipment can be between item level 9 through 29.
 
 Set `RandomLoot.Filter.PlayerLevelBracket.BracketEquippableOnly = 1` to apply this dynamic bracket
 only to normal items with nonzero `InventoryType`. Normal non-equipment items then bypass the dynamic
-bracket but continue to obey all static filters.
-
-All 80 `MinMaxItemLevel.<level>` entries are explicit configuration values. Each must contain two
-positive, ordered values and form a non-empty range for the configured offset. Invalid configuration
-fails closed and adds no random loot.
-
-## Companion Loot
-
-Pets and mounts are excluded from the normal pool and rolled independently per eligible kill. Pets
-include standard `Class=15`, `SubClass=2` items and legacy items whose use spell summons a pet.
-Mounts include standard `Class=15`, `SubClass=5` items and legacy items whose use spell applies the
-mounted aura. Each category has its own enable flag and percentage chance; normal items continue to
-use the creature-level chance. One pet and one mount can be added when corpse loot slots allow.
-They bypass required-level, item-level, and player-level bracket filters, but otherwise retain the
-module's configured filtering. When type filtering is enabled, `RandomLoot.Filter.Include.Misc` must
-remain enabled. Other `Class=15` miscellaneous subclasses continue through the normal loot pool.
-
-The bracket is applied when the randomizer creates loot. It leaves normal shared loot, pet-owner
-kills, and mod-aoe-loot's loot transfer behavior unchanged.
+bracket but continue to obey all other filters. 
 
 ## SQL
 
