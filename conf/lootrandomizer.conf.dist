@@ -149,6 +149,21 @@ RandomLoot.Companion.Mounts.Enabled = 1
 RandomLoot.Companion.Mounts.Chance = 2.0
 
 ###################################################################################################
+# Player-level required-level bracket
+#
+# When enabled, normal items must have a RequiredLevel within LevelOffset levels below or above the
+# player's level. The range is capped between levels 1 and 80.
+# Example: a level 45 player with LevelOffset=5 can receive items with RequiredLevel 40 through 50.
+#
+# IncludeUnrestrictedItems allows items with RequiredLevel 0 or 1 at every player level. When it is
+# disabled, RequiredLevel 0 items are excluded and RequiredLevel 1 items only pass when level 1 is
+# inside the calculated range.
+###################################################################################################
+RandomLoot.Filter.RequiredLevelBracket.Enabled = 0
+RandomLoot.Filter.RequiredLevelBracket.LevelOffset = 5
+RandomLoot.Filter.RequiredLevelBracket.IncludeUnrestrictedItems = 0
+
+###################################################################################################
 # Player-level item bracket
 #
 # When enabled, normal items must be within the bracket for the player receiving random loot:

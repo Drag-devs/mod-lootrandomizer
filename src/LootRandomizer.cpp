@@ -124,6 +124,13 @@ namespace
         std::array<uint32, MAX_PLAYER_LEVEL + 1> MaxItemLevel {};
     };
 
+    struct RequiredLevelBracket
+    {
+        bool Enabled = false;
+        uint8 LevelOffset = 5;
+        bool IncludeUnrestrictedItems = false;
+    };
+
     struct CompanionLootConfig
     {
         bool PetsEnabled = true;
@@ -139,7 +146,7 @@ namespace
         {
             std::unique_lock lock(_mutex);
 
-            _enabled = sConfigMgr->GetOption<bool>("RandomLoot.Enable", true);
+            _enabled = sConfigMgr->GetOption<bool>("RandomLoot.Enable", false);
 
             _minItems = std::max<int32>(0, sConfigMgr->GetOption<int32>("RandomLoot.MinItems", 1));
             _maxItems = std::max<int32>(_minItems, sConfigMgr->GetOption<int32>("RandomLoot.MaxItems", 1));
@@ -245,6 +252,7 @@ namespace
             _filters.RequireExistingLoot = sConfigMgr->GetOption<bool>("RandomLoot.Filter.RequireExistingLoot", false, false);
 
             LoadPlayerLevelBracketConfig();
+            LoadRequiredLevelBracketConfig();
 
             _companionLoot.PetsEnabled = sConfigMgr->GetOption<bool>("RandomLoot.Companion.Pets.Enabled", true, false);
             _companionLoot.PetChance = std::clamp(sConfigMgr->GetOption<float>("RandomLoot.Companion.Pets.Chance", 1.0f, false), 0.0f, 100.0f);
@@ -367,7 +375,7 @@ namespace
                     _eligibleItemIds.push_back(itemTemplate.ItemId);
             }
 
-            if (_playerLevelBracket.Enabled)
+            if (UsesDynamicLevelBrackets())
                 RebuildPlayerLevelCandidatePoolsLocked();
 
             LOG_INFO("module.RandomLoot", "mod-lootrandomizer built item pools: {} normal items, {} pets, {} mounts", _eligibleItemIds.size(), _petItemIds.size(), _mountItemIds.size());
@@ -409,6 +417,9 @@ namespace
             if (!_enabled)
                 return;
 
+            if (_playerLevelBracket.Enabled && !_playerLevelBracket.ConfigurationValid)
+                return;
+
             uint32 accountId = killer->GetSession()->GetAccountId();
             if (IsAccountExcluded(accountId) &&
                 !(_allowRandomLootWhenGrouped && killer->GetGroup()))
@@ -420,7 +431,7 @@ namespace
                 RebuildItemPoolLocked();
 
             uint8 playerLevel = std::clamp<uint8>(killer->GetLevel(), 1, MAX_PLAYER_LEVEL);
-            std::vector<uint32> const& candidateItemIds = _playerLevelBracket.Enabled
+            std::vector<uint32> const& candidateItemIds = UsesDynamicLevelBrackets()
                 ? _playerLevelEligibleItemIds[playerLevel]
                 : _eligibleItemIds;
 
@@ -493,7 +504,7 @@ namespace
         {
             _playerLevelBracket = {};
             _playerLevelBracket.Enabled = sConfigMgr->GetOption<bool>("RandomLoot.Filter.PlayerLevelBracket.Enabled", false, false);
-            _playerLevelBracket.BracketEquippableOnly = sConfigMgr->GetOption<bool>("RandomLoot.Filter.PlayerLevelBracket.BracketEquippableOnly", false, false);
+            _playerLevelBracket.BracketEquippableOnly = sConfigMgr->GetOption<bool>("RandomLoot.Filter.PlayerLevelBracket.BracketEquippableOnly", true, false);
 
             int32 configuredOffset = sConfigMgr->GetOption<int32>("RandomLoot.Filter.PlayerLevelBracket.UpperLevelOffset", 10, false);
             _playerLevelBracket.UpperLevelOffset = static_cast<uint8>(std::clamp<int32>(configuredOffset, 0, MAX_PLAYER_LEVEL));
@@ -516,10 +527,13 @@ namespace
 
                 try
                 {
-                    uint64 minItemLevel = std::stoull(mapping.substr(0, separator));
-                    uint64 maxItemLevel = std::stoull(mapping.substr(separator + 1));
+                    size_t minLength = 0;
+                    size_t maxLength = 0;
+                    uint64 minItemLevel = std::stoull(mapping.substr(0, separator), &minLength);
+                    uint64 maxItemLevel = std::stoull(mapping.substr(separator + 1), &maxLength);
                     if (minItemLevel == 0 || maxItemLevel == 0 || minItemLevel > maxItemLevel ||
-                        minItemLevel > std::numeric_limits<uint32>::max() || maxItemLevel > std::numeric_limits<uint32>::max())
+                        minItemLevel > std::numeric_limits<uint32>::max() || maxItemLevel > std::numeric_limits<uint32>::max() ||
+                        minLength != separator || maxLength != mapping.size() - separator - 1)
                     {
                         LOG_ERROR("module.RandomLoot", "mod-lootrandomizer: invalid PlayerLevelBracket mapping for player level {}: '{}'.", level, mapping);
                         valid = false;
@@ -556,9 +570,40 @@ namespace
             }
         }
 
+        void LoadRequiredLevelBracketConfig()
+        {
+            _requiredLevelBracket = {};
+            _requiredLevelBracket.Enabled = sConfigMgr->GetOption<bool>("RandomLoot.Filter.RequiredLevelBracket.Enabled", false, false);
+            _requiredLevelBracket.LevelOffset = static_cast<uint8>(std::clamp<int32>(
+                sConfigMgr->GetOption<int32>("RandomLoot.Filter.RequiredLevelBracket.LevelOffset", 5, false),
+                0, MAX_PLAYER_LEVEL));
+            _requiredLevelBracket.IncludeUnrestrictedItems = sConfigMgr->GetOption<bool>(
+                "RandomLoot.Filter.RequiredLevelBracket.IncludeUnrestrictedItems", false, false);
+        }
+
+        bool UsesDynamicLevelBrackets() const
+        {
+            return _playerLevelBracket.Enabled || _requiredLevelBracket.Enabled;
+        }
+
+        bool MatchesRequiredLevelBracket(ItemTemplate const& itemTemplate, uint8 playerLevel) const
+        {
+            if (!_requiredLevelBracket.Enabled)
+                return true;
+
+            if (_requiredLevelBracket.IncludeUnrestrictedItems && itemTemplate.RequiredLevel <= 1)
+                return true;
+
+            uint8 lowerLevel = playerLevel > _requiredLevelBracket.LevelOffset
+                ? playerLevel - _requiredLevelBracket.LevelOffset
+                : 1;
+            uint8 upperLevel = std::min<uint8>(MAX_PLAYER_LEVEL, playerLevel + _requiredLevelBracket.LevelOffset);
+            return itemTemplate.RequiredLevel >= lowerLevel && itemTemplate.RequiredLevel <= upperLevel;
+        }
+
         void RebuildPlayerLevelCandidatePoolsLocked()
         {
-            if (!_playerLevelBracket.ConfigurationValid)
+            if (_playerLevelBracket.Enabled && !_playerLevelBracket.ConfigurationValid)
                 return;
 
             for (uint8 playerLevel = 1; playerLevel <= MAX_PLAYER_LEVEL; ++playerLevel)
@@ -578,13 +623,10 @@ namespace
                     if (!itemTemplate)
                         continue;
 
-                    if (_playerLevelBracket.BracketEquippableOnly && !IsItemEquippable(*itemTemplate))
-                    {
-                        candidateItemIds.push_back(itemId);
-                        continue;
-                    }
-
-                    if (itemTemplate->ItemLevel >= minItemLevel && itemTemplate->ItemLevel <= maxItemLevel)
+                    bool matchesItemLevelBracket = !_playerLevelBracket.Enabled ||
+                        (_playerLevelBracket.BracketEquippableOnly && !IsItemEquippable(*itemTemplate)) ||
+                        (itemTemplate->ItemLevel >= minItemLevel && itemTemplate->ItemLevel <= maxItemLevel);
+                    if (matchesItemLevelBracket && MatchesRequiredLevelBracket(*itemTemplate, playerLevel))
                         candidateItemIds.push_back(itemId);
                 }
             }
@@ -891,6 +933,7 @@ namespace
         EligibleItemTypes _eligibleTypes;
         RandomLootFilters _filters;
         PlayerLevelBracket _playerLevelBracket;
+        RequiredLevelBracket _requiredLevelBracket;
         CompanionLootConfig _companionLoot;
         bool _hasBuiltPoolSinceConfig = false;
         bool _templatesWereEmptyOnLastBuild = true;

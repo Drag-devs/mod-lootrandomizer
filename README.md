@@ -53,7 +53,7 @@ excluded solo playerbots remain blocked.
 ### Item Pool, Brackets, And Companions
 
 - Filter normal loot by item category, equipment family, quality, level, expansion, and binding
-- Apply an optional player-level item-level bracket to normal equipment
+- Apply optional player-level item-level and required-level brackets
 - Configure independent pet and mount companion pools and their chances
 
 ## Notes about filtering
@@ -118,6 +118,23 @@ maximum ilvl from `RandomLoot.Filter.PlayerLevelBracket.MinMaxItemLevel.19`. In 
 Set `RandomLoot.Filter.PlayerLevelBracket.BracketEquippableOnly = 1` to apply this dynamic bracket
 only to equippable items. Normal non-equipment items then bypass the dynamic
 bracket but continue to obey all other filters. 
+
+## Required-Level Bracket
+
+Enable the required-level bracket to restrict normal items by their `RequiredLevel` without defining
+a range for every player level. The module uses a window around the player's level, capped between
+levels 1 and 80.
+
+For example, with `RandomLoot.Filter.RequiredLevelBracket.LevelOffset = 5`, a level 45 player can
+receive normal items with required levels 40 through 50.
+
+Set `RandomLoot.Filter.RequiredLevelBracket.IncludeUnrestrictedItems = 1` to also allow items with
+required level 0 or 1 at every player level. When disabled, required level 0 items are excluded and
+required level 1 items follow the calculated level window.
+
+When both player-level brackets are enabled, normal items must satisfy both. Static required-level
+and item-level ranges remain additional restrictions. Companion pets and mounts bypass both dynamic
+level brackets.
 
 ## SQL
 
